@@ -7,12 +7,12 @@
  *              for each item line and populates Inventory Detail lot numbers.
  */
 
-define(['N/https', 'N/url', 'N/currentRecord', 'N/log'], (https, url, currentRecord, log) => {
+define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, url, currentRecord, log, runtime) => {
 
   // ─── CONFIG ────────────────────────────────────────────────────────────────
-  // Replace these with your actual Script ID and Deploy ID after deploying the Suitelet
-  const SUITELET_SCRIPT_ID  = 'customscript_fifo_lot_suitelet';
-  const SUITELET_DEPLOY_ID  = 'customdeploy_fifo_lot_suitelet';
+  // Can be configured in parameters in client script deployment
+  const SUITELET_SCRIPT_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_script_id'} );
+  const SUITELET_DEPLOY_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_deploy_id'} );
   // ───────────────────────────────────────────────────────────────────────────
 
   /**
@@ -30,7 +30,7 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log'], (https, url, currentRec
     }
 
     if (remaining > 0) {
-      log.warn({
+      log.audit({
         title: 'FIFO short allocation',
         details: `Still short ${remaining} units after exhausting all YYWW lots`,
       });
@@ -100,7 +100,7 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log'], (https, url, currentRec
         const fifoLots = fetchFifoLots(itemId, locationId);
 
         if (!fifoLots.length) {
-          log.warn({ title: 'No YYWW lots found', details: `Item: ${itemId}, Location: ${locationId}` });
+          log.audit({ title: 'No YYWW lots found', details: `Item: ${itemId}, Location: ${locationId}` });
           continue;
         }
 
