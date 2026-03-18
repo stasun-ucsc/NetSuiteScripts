@@ -158,5 +158,5 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
     }
   };
 
-  return { pageInit };
+  return { pageInit: pageInit };
 });

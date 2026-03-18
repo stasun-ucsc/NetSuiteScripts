@@ -82,5 +82,5 @@ define(['N/search', 'N/log'], (search, log) => {
     }
   };
 
-  return { onRequest };
+  return { onRequest: onRequest };
 });
