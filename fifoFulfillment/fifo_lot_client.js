@@ -73,7 +73,9 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
     // ───────────────────────────────────────────────────────────────────────────
 
     // Only run on new Item Fulfillment creation
-    if (context.mode !== 'create') return;
+    if (context.mode !== 'copy') {
+      return;
+    };
 
     const rec      = context.currentRecord;
     const numLines = rec.getLineCount({ sublistId: 'item' });
