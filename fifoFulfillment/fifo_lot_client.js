@@ -123,23 +123,29 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
 
         // Write each FIFO allocation
         allocations.forEach((alloc, j) => {
-          if (j >= existingLines) {
-            inventoryDetail.insertLine({ sublistId: 'inventoryassignment', line: j });
+          const existingLines = inventoryDetail.getLineCount({ sublistId: 'inventoryassignment' });
+
+          if (j < existingLines) {
+            // Edit the existing pre-populated line
+            inventoryDetail.selectLine({ sublistId: 'inventoryassignment', line: j });
+          } else {
+            // Add a new line
+            inventoryDetail.selectNewLine({ sublistId: 'inventoryassignment' });
           }
 
-          inventoryDetail.setSublistValue({
+          inventoryDetail.setCurrentSublistValue({
             sublistId: 'inventoryassignment',
             fieldId:   'receiptinventorynumber',
-            line: j,
             value:     alloc.lotNumber,
           });
 
-          inventoryDetail.setSublistValue({
+          inventoryDetail.setCurrentSublistValue({
             sublistId: 'inventoryassignment',
             fieldId:   'quantity',
-            line: j,
             value:     alloc.quantity,
           });
+
+          inventoryDetail.commitLine({ sublistId: 'inventoryassignment' });
 
           log.debug({
             title: 'Lot assigned',
@@ -147,8 +153,9 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
           });
         });
 
-        // Remove leftover pre-populated lines
-        for (let k = existingLines - 1; k >= allocations.length; k--) {
+        // Remove leftover pre-populated lines from the bottom up
+        const finalLineCount = inventoryDetail.getLineCount({ sublistId: 'inventoryassignment' });
+        for (let k = finalLineCount - 1; k >= allocations.length; k--) {
           inventoryDetail.removeLine({ sublistId: 'inventoryassignment', line: k });
         }
 
