@@ -3,170 +3,45 @@
  * @NScriptType ClientScript
  *
  * Script: fifo_lot_client.js
- * Description: On pageInit of a new Item Fulfillment, calls the FIFO Suitelet
- *              for each item line and populates Inventory Detail lot numbers.
+ * Description: Handles the FIFO Fulfill button click on the Sales Order.
+ *              Calls the FIFO Fulfill Suitelet with the current Sales Order ID.
  */
 
-define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, url, currentRecord, log, runtime) => {
+define(['N/currentRecord', 'N/url', 'N/https', 'N/log'], (currentRecord, url, https, log) => {
 
-  /**
-   * Allocate quantityRequired across FIFO-sorted lots, spilling into the next if needed.
-   */
-  const allocateFifo = (lots, quantityRequired) => {
-    const allocations = [];
-    let remaining = quantityRequired;
+  const fifoFulfill = () => {
+    const rec   = currentRecord.get();
+    const soId  = rec.id;
 
-    for (const lot of lots) {
-      if (remaining <= 0) break;
-      const take = Math.min(lot.quantityAvailable, remaining);
-      allocations.push({ lotNumber: lot.lotNumber, quantity: take });
-      remaining -= take;
-    }
-
-    if (remaining > 0) {
-      log.audit({
-        title: 'FIFO short allocation',
-        details: `Still short ${remaining} units after exhausting all YYWW lots`,
-      });
-    }
-
-    return allocations;
-  };
-
-  /**
-   * Call the Suitelet synchronously to get FIFO lots for a given item + location.
-   */
-  const fetchFifoLots = (itemId, locationId, scriptId, deployId) => {
-    const suiteletUrl = url.resolveScript({
-      scriptId:   scriptId,
-      deploymentId: deployId,
-      returnExternalUrl: false,
-      params: {
-        itemId,
-        ...(locationId ? { locationId } : {}),
-      },
-    });
-
-    const response = https.get({ url: suiteletUrl });
-
-    if (response.code !== 200) {
-      throw new Error(`Suitelet returned HTTP ${response.code}`);
-    }
-
-    const parsed = JSON.parse(response.body);
-
-    if (parsed.error) {
-      throw new Error(`Suitelet error: ${parsed.error}`);
-    }
-
-    return parsed.lots || [];
-  };
-
-  // ─── MAIN ──────────────────────────────────────────────────────────────────
-
-  const pageInit = (context) => {
-
-    // ─── CONFIG ────────────────────────────────────────────────────────────────
-    // Can be configured in parameters in client script deployment
-    const SUITELET_SCRIPT_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_script_id'} );
-    const SUITELET_DEPLOY_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_deploy_id'} );
-    // ───────────────────────────────────────────────────────────────────────────
-
-    // Only run on new Item Fulfillment creation
-    if (context.mode !== 'copy') {
+    if (!soId) {
+      alert('Could not determine Sales Order ID. Please try again.');
       return;
-    };
+    }
 
-    const rec      = context.currentRecord;
-    const numLines = rec.getLineCount({ sublistId: 'item' });
+    // Confirm before proceeding
+    const confirmed = confirm('Create Item Fulfillment with FIFO lot numbers?');
+    if (!confirmed) return;
 
-    log.audit({ title: 'fifo_lot_client pageInit', details: `Processing ${numLines} lines` });
+    try {
+      const script = runtime.getCurrentScript();
+      const SUITELET_SCRIPT_ID = script.getParameter({ name: 'custscript_fifo_suitelet_script_id' });
+      const SUITELET_DEPLOY_ID = script.getParameter({ name: 'custscript_fifo_suitelet_deploy_id' });
 
-    for (let i = 0; i < numLines; i++) {
-      try {
-        const itemIsFulfilled = rec.getSublistValue({
-          sublistId: 'item',
-          fieldId:   'itemreceive',
-          line: i,
-        });
-        if (!itemIsFulfilled) continue;
+      const suiteletUrl = url.resolveScript({
+        scriptId:          SUITELET_SCRIPT_ID,
+        deploymentId:      SUITELET_DEPLOY_ID,
+        returnExternalUrl: false,
+        params:            { soId: soId },
+      });
 
-        const itemId     = rec.getSublistValue({ sublistId: 'item', fieldId: 'item',     line: i });
-        const locationId = rec.getSublistValue({ sublistId: 'item', fieldId: 'location', line: i });
-        const qtyToFulfill = parseFloat(
-          rec.getSublistValue({ sublistId: 'item', fieldId: 'quantity', line: i }) || 0
-        );
+      // Redirect the user to the Suitelet — it will process and redirect to the fulfillment
+      window.location.href = suiteletUrl;
 
-        if (!itemId || qtyToFulfill <= 0) continue;
-
-        // Fetch FIFO lots from the Suitelet
-        const fifoLots = fetchFifoLots(itemId, locationId, SUITELET_SCRIPT_ID, SUITELET_DEPLOY_ID);
-
-        if (!fifoLots.length) {
-          log.audit({ title: 'No YYWW lots found', details: `Item: ${itemId}, Location: ${locationId}` });
-          continue;
-        }
-
-        const allocations = allocateFifo(fifoLots, qtyToFulfill);
-
-        // Select the item line before accessing its subrecord
-        rec.selectLine({ sublistId: 'item', line: i });
-
-        // Access the Inventory Detail subrecord
-        const inventoryDetail = rec.getCurrentSublistSubrecord({
-          sublistId: 'item',
-          fieldId:   'inventorydetail',
-        });
-        if (!inventoryDetail) continue;
-
-        const existingLines = inventoryDetail.getLineCount({ sublistId: 'inventoryassignment' });
-
-        // Write each FIFO allocation
-        allocations.forEach((alloc, j) => {
-          const existingLines = inventoryDetail.getLineCount({ sublistId: 'inventoryassignment' });
-
-          if (j < existingLines) {
-            // Edit the existing pre-populated line
-            inventoryDetail.selectLine({ sublistId: 'inventoryassignment', line: j });
-          } else {
-            // Add a new line
-            inventoryDetail.selectNewLine({ sublistId: 'inventoryassignment' });
-          }
-
-          inventoryDetail.setCurrentSublistValue({
-            sublistId: 'inventoryassignment',
-            fieldId:   'receiptinventorynumber',
-            value:     alloc.lotNumber,
-          });
-
-          inventoryDetail.setCurrentSublistValue({
-            sublistId: 'inventoryassignment',
-            fieldId:   'quantity',
-            value:     alloc.quantity,
-          });
-
-          inventoryDetail.commitLine({ sublistId: 'inventoryassignment' });
-
-          log.debug({
-            title: 'Lot assigned',
-            details: `Line ${i} → Lot ${alloc.lotNumber}, Qty ${alloc.quantity}`,
-          });
-        });
-
-        // Remove leftover pre-populated lines from the bottom up
-        const finalLineCount = inventoryDetail.getLineCount({ sublistId: 'inventoryassignment' });
-        for (let k = finalLineCount - 1; k >= allocations.length; k--) {
-          inventoryDetail.removeLine({ sublistId: 'inventoryassignment', line: k });
-        }
-
-        // Commit the line after modifying its subrecord
-        rec.commitLine({ sublistId: 'item' });
-
-      } catch (lineError) {
-        log.error({ title: `Error on line ${i}`, details: lineError.message });
-      }
+    } catch (e) {
+      log.error({ title: 'fifoFulfill error', details: e.message });
+      alert('An error occurred: ' + e.message);
     }
   };
 
-  return { pageInit: pageInit };
+  return { pageInit: function() {} }; // pageInit required by ClientScript type
 });
