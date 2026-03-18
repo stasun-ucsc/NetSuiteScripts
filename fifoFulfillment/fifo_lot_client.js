@@ -9,12 +9,6 @@
 
 define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, url, currentRecord, log, runtime) => {
 
-  // ─── CONFIG ────────────────────────────────────────────────────────────────
-  // Can be configured in parameters in client script deployment
-  const SUITELET_SCRIPT_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_script_id'} );
-  const SUITELET_DEPLOY_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_deploy_id'} );
-  // ───────────────────────────────────────────────────────────────────────────
-
   /**
    * Allocate quantityRequired across FIFO-sorted lots, spilling into the next if needed.
    */
@@ -71,6 +65,13 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
   // ─── MAIN ──────────────────────────────────────────────────────────────────
 
   const pageInit = (context) => {
+    
+    // ─── CONFIG ────────────────────────────────────────────────────────────────
+    // Can be configured in parameters in client script deployment
+    const SUITELET_SCRIPT_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_script_id'} );
+    const SUITELET_DEPLOY_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_deploy_id'} );
+    // ───────────────────────────────────────────────────────────────────────────
+
     // Only run on new Item Fulfillment creation
     if (context.mode !== 'create') return;
 
