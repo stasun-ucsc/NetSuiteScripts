@@ -36,10 +36,10 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
   /**
    * Call the Suitelet synchronously to get FIFO lots for a given item + location.
    */
-  const fetchFifoLots = (itemId, locationId) => {
+  const fetchFifoLots = (itemId, locationId, scriptId, deployId) => {
     const suiteletUrl = url.resolveScript({
-      scriptId:   SUITELET_SCRIPT_ID,
-      deploymentId: SUITELET_DEPLOY_ID,
+      scriptId:   scriptId,
+      deploymentId: deployId,
       returnExternalUrl: false,
       params: {
         itemId,
@@ -65,7 +65,7 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
   // ─── MAIN ──────────────────────────────────────────────────────────────────
 
   const pageInit = (context) => {
-    
+
     // ─── CONFIG ────────────────────────────────────────────────────────────────
     // Can be configured in parameters in client script deployment
     const SUITELET_SCRIPT_ID  = runtime.getCurrentScript().getParameter( {name: 'custscript_fifo_suitelet_script_id'} );
@@ -98,7 +98,7 @@ define(['N/https', 'N/url', 'N/currentRecord', 'N/log', 'N/runtime'], (https, ur
         if (!itemId || qtyToFulfill <= 0) continue;
 
         // Fetch FIFO lots from the Suitelet
-        const fifoLots = fetchFifoLots(itemId, locationId);
+        const fifoLots = fetchFifoLots(itemId, locationId, SUITELET_SCRIPT_ID, SUITELET_DEPLOY_ID);
 
         if (!fifoLots.length) {
           log.audit({ title: 'No YYWW lots found', details: `Item: ${itemId}, Location: ${locationId}` });
