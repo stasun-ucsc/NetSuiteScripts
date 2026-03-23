@@ -8,7 +8,7 @@
  *              saves the record, and redirects the user to the new fulfillment.
  */
 
-define(['N/record', 'N/search', 'N/redirect', 'N/log'], (record, search, redirect, log) => {
+define(['N/record', 'N/search', 'N/redirect', 'N/runtime', 'N/log'], (record, search, redirect, runtime, log) => {
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
 
@@ -17,11 +17,12 @@ define(['N/record', 'N/search', 'N/redirect', 'N/log'], (record, search, redirec
 
   const getFifoLots = (itemId, locationId) => {
     const filters = [
-      search.createFilter({ name: 'item',            operator: search.Operator.ANYOF,        values: itemId }),
-      search.createFilter({ name: 'quantityonhand',  join: 'inventoryNumber', operator: search.Operator.GREATERTHAN, values: 0 }),
+      search.createFilter({ name: 'item', operator: search.Operator.ANYOF, values: itemId }),
+      search.createFilter({ name: 'onhand', operator: search.Operator.GREATERTHAN, values: 0 })
     ];
 
     if (locationId) {
+      log.audit('Searching for location:', locationId);
       filters.push(
         search.createFilter({ name: 'location', operator: search.Operator.ANYOF, values: locationId })
       );
@@ -32,17 +33,25 @@ define(['N/record', 'N/search', 'N/redirect', 'N/log'], (record, search, redirec
       filters,
       columns: [
         search.createColumn({ name: 'inventorynumber' }),
-        search.createColumn({ name: 'quantityonhand', join: 'inventoryNumber' }),
-      ],
+        search.createColumn({ name: 'onhand' })
+      ]
     });
 
     const lots = [];
 
     lotSearch.run().each((result) => {
-      const lotNumber = result.getValue({ name: 'inventorynumber' });
+      const lotNumber = result.getText({ name: 'inventorynumber' });
       const qtyOnHand = parseFloat(
-        result.getValue({ name: 'quantityonhand', join: 'inventoryNumber' }) || 0
+        result.getValue({ name: 'onhand' }) || 0
       );
+
+      // ─── DIAGNOSTIC ──────────────────────────────────────────────────────────
+      log.audit({
+        title: 'Raw lot from search',
+        details: `item: ${result.getText({ name: 'item' })} | locationId: ${result.getText({ name: 'location' })} | lotNumber: "${lotNumber}" | qtyOnHand: ${qtyOnHand} | isYYWW: ${isYYWW(lotNumber)}`,
+      });
+      // ─────────────────────────────────────────────────────────────────────────
+
       if (isYYWW(lotNumber) && qtyOnHand > 0) {
         lots.push({ lotNumber, quantityAvailable: qtyOnHand });
       }
@@ -80,6 +89,7 @@ define(['N/record', 'N/search', 'N/redirect', 'N/log'], (record, search, redirec
   // ─── MAIN ──────────────────────────────────────────────────────────────────
 
   const onRequest = (context) => {
+    log.debug('Suitelet Called', 'Suitelet Called');
     const { request, response } = context;
     const soId = request.parameters.soId;
 
@@ -87,18 +97,32 @@ define(['N/record', 'N/search', 'N/redirect', 'N/log'], (record, search, redirec
       response.write('Error: Missing Sales Order ID.');
       return;
     }
+    
+    log.audit({ title: 'fifo_fulfill_suitelet', details: `Transforming SO ${soId} to Item Fulfillment` });
+    // Load the SO first to grab the location
+    const soRec      = record.load({ type: record.Type.SALES_ORDER, id: parseInt(soId, 10) });
+    const locationId = soRec.getValue({ fieldId: 'location' });
+
+    log.audit({ title: 'Location from SO', details: `locationId: ${locationId}` });
+    let fulfillmentRec;
+    try {
+      // Transform SO → Item Fulfillment in dynamic mode
+      fulfillmentRec = record.transform({
+        fromType:  record.Type.SALES_ORDER,
+        fromId:    parseInt(soId, 10),
+        toType:    record.Type.ITEM_FULFILLMENT,
+        isDynamic: true,
+        defaultValues: {
+          inventorylocation: locationId,
+        },
+      });
+    } catch (transformError) {
+      log.error({ title: 'record.transform failed', details: `SO ID: ${soId} | Error: ${transformError.message}` });
+      response.write(`Transform error: ${transformError.message}`);
+      return;
+    }
 
     try {
-      log.audit({ title: 'fifo_fulfill_suitelet', details: `Transforming SO ${soId} to Item Fulfillment` });
-
-      // Transform SO → Item Fulfillment in dynamic mode
-      const fulfillmentRec = record.transform({
-        fromType:   record.Type.SALES_ORDER,
-        fromId:     parseInt(soId, 10),
-        toType:     record.Type.ITEM_FULFILLMENT,
-        isDynamic:  true, // required for subrecord line editing
-      });
-
       const numLines = fulfillmentRec.getLineCount({ sublistId: 'item' });
 
       for (let i = 0; i < numLines; i++) {

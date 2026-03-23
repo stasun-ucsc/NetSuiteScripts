@@ -7,9 +7,27 @@
  *              Calls the FIFO Fulfill Suitelet with the current Sales Order ID.
  */
 
-define(['N/currentRecord', 'N/url', 'N/https', 'N/log'], (currentRecord, url, https, log) => {
+define(['N/currentRecord', 'N/url', 'N/runtime', 'N/ui/dialog', 'N/log'], (currentRecord, url, runtime, dialog, log) => {
+
+  const pageInit = (context) => {
+    // Check if we were redirected back from the Suitelet with an error
+    log.debug('Page Init', 'Client script activated');
+    const urlParams = new URLSearchParams(window.location.search);
+    const fifoError = urlParams.get('custparam_fifo_error');
+    log.debug('Error Check', fifoError);
+
+    if (fifoError) {
+      log.debug('Alert Check', `Creating Alert Message ${decodeURIComponent(fifoError)}`);
+      dialog.alert({ 
+        title: 'FIFO Fulfillment Error',
+        message: decodeURIComponent(fifoError)
+      });
+    }
+  };
+
 
   const fifoFulfill = () => {
+    log.debug('fifoFulfill() called', 'fifoFulfill() called');
     const rec   = currentRecord.get();
     const soId  = rec.id;
 
@@ -39,9 +57,15 @@ define(['N/currentRecord', 'N/url', 'N/https', 'N/log'], (currentRecord, url, ht
 
     } catch (e) {
       log.error({ title: 'fifoFulfill error', details: e.message });
-      alert('An error occurred: ' + e.message);
+      dialog.alert({ 
+        title: 'An error occurred',
+        message: e.message
+      });
     }
   };
 
-  return { pageInit: function() {} }; // pageInit required by ClientScript type
+  return { 
+    pageInit: pageInit, // pageInit required by ClientScript type
+    fifoFulfill: fifoFulfill
+  }
 });
